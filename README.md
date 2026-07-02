@@ -20,7 +20,9 @@ See [CLAUDE.md](./CLAUDE.md) for architecture details.
    cp .env.example .env
    ```
 
-   Fill in `VENICE_API_KEY` in `.env` with your Venice AI API key.
+   Fill in `VENICE_API_KEY` in `.env` with your Venice AI API key. When generating the
+   key on Venice, choose **Inference Only** (not Admin) — an Admin-only key returns
+   401 on `/chat/completions` even though it looks valid.
 
 2. Backend:
 
@@ -44,14 +46,32 @@ See [CLAUDE.md](./CLAUDE.md) for architecture details.
 
    Runs at http://localhost:5173.
 
+## Usage
+
+With both servers running, open http://localhost:5173. The sidebar lists every panel
+parsed from `sample_data/promotheus-sample-0.json`. Pick a target query language from
+the dropdown, click a panel to translate its queries, and for each one:
+
+- **Approve** — accept the translation as-is
+- **Reject** — flag it as not usable
+- **Edit** — open a text box pre-filled with the translation, correct it, and save that
+  as the approved version
+
+Decisions persist as you move between panels. The bar under the header tracks
+approved/rejected/edited/pending counts across the whole dashboard, and panels with
+all their queries decided get a checkmark in the sidebar.
+
 ## Project layout
 
 ```
 backend/       FastAPI app — dashboard parsing, LLM-driven query translation
 frontend/      React (Vite) app — step-through review UI
-sample_data/   Example Grafana dashboard JSON exports for local testing
+sample_data/   promotheus-sample-0.json: a real 15-panel Node Exporter dashboard export
 ```
 
 ## Status
 
-Scaffold only — hello world on both sides, no migration logic yet.
+Parsing (`GET /parse`) and Venice-backed query translation (`POST /translate`) are
+working, plus a full review UI (translate → approve/reject/edit → track decisions).
+Not yet built: exporting the approved decisions back out as a final migrated dashboard
+JSON.
