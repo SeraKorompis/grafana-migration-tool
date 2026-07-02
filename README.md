@@ -61,6 +61,14 @@ Decisions persist as you move between panels. The bar under the header tracks
 approved/rejected/edited/pending counts across the whole dashboard, and panels with
 all their queries decided get a checkmark in the sidebar.
 
+Once you've made at least one decision, an **Export Dashboard** button appears in the
+header. It shows a summary of how many queries will be exported migrated vs. left as
+original/flagged, then downloads a new Grafana dashboard JSON: approved/edited queries
+get their migrated query text, rejected/pending queries keep their original (still
+working) query with a `migrationNote` field flagging them for manual attention. The
+file's `uid`/title are suffixed so importing it into Grafana won't overwrite the
+original dashboard.
+
 ## Project layout
 
 ```
@@ -71,7 +79,7 @@ sample_data/   promotheus-sample-0.json: a real 15-panel Node Exporter dashboard
 
 ## Status
 
-Parsing (`GET /parse`) and Venice-backed query translation (`POST /translate`) are
-working, plus a full review UI (translate → approve/reject/edit → track decisions).
-Not yet built: exporting the approved decisions back out as a final migrated dashboard
-JSON.
+The full flow described at the top is working end-to-end: parse (`GET /parse`),
+Venice-backed translation (`POST /translate`), a review UI to approve/reject/edit each
+query with decisions tracked across the dashboard, and export (`POST /export`) to
+download a migrated Grafana dashboard JSON.
