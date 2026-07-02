@@ -18,3 +18,16 @@ export async function translatePanel(panel, targetLanguage) {
   }
   return res.json()
 }
+
+export async function exportDashboard(decisions, targetLanguage) {
+  const res = await fetch(`${API_BASE}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decisions, target_language: targetLanguage }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `Export failed (${res.status})`)
+  }
+  return res.json()
+}

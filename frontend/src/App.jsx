@@ -1,9 +1,24 @@
 import { useEffect, useState } from 'react'
-import { fetchPanels, translatePanel } from './api'
+import { fetchPanels, translatePanel, exportDashboard } from './api'
 import PanelList from './components/PanelList'
 import TranslationResult from './components/TranslationResult'
 import DecisionSummary from './components/DecisionSummary'
+import ExportDialog from './components/ExportDialog'
 import './App.css'
+
+function slugify(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'dashboard'
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const TARGET_LANGUAGES = ['InfluxDB Flux', 'LogQL', 'SQL']
 
@@ -19,6 +34,9 @@ function App() {
   const [translateError, setTranslateError] = useState(null)
   // Decisions live here (not per-panel local state) so they survive panel switches.
   const [decisions, setDecisions] = useState({})
+  const [showExportDialog, setShowExportDialog] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState(null)
 
   useEffect(() => {
     fetchPanels()
@@ -62,6 +80,29 @@ function App() {
     }))
   }
 
+  async function handleConfirmExport() {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const decisionList = Object.entries(decisions).map(([key, d]) => {
+        const [panelIdStr, ...refIdParts] = key.split(':')
+        return {
+          panel_id: Number(panelIdStr),
+          ref_id: refIdParts.join(':'),
+          status: d.status,
+          translated_query: d.translatedQuery,
+        }
+      })
+      const data = await exportDashboard(decisionList, targetLanguage)
+      downloadJson(data.dashboard, `${slugify(data.dashboard.title)}.json`)
+      setShowExportDialog(false)
+    } catch (err) {
+      setExportError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const totalQueries = panels.reduce((sum, p) => sum + p.queries.length, 0)
   const decidedCounts = { approved: 0, rejected: 0, edited: 0 }
   Object.values(decisions).forEach((d) => {
@@ -73,26 +114,51 @@ function App() {
   }
 
   const result = selectedPanel ? translationsCache[`${selectedPanel.id}:${targetLanguage}`] ?? null : null
+  const hasDecisions = Object.keys(decisions).length > 0
 
   return (
     <div className="app">
       <header>
         <h1>Grafana Migration Tool</h1>
-        <label>
-          Target language:{' '}
-          <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
-            {TARGET_LANGUAGES.map((lang) => (
-              <option key={lang} value={lang}>
-                {lang}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="header-controls">
+          <label>
+            Target language:{' '}
+            <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
+              {TARGET_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang}
+                </option>
+              ))}
+            </select>
+          </label>
+          {hasDecisions && (
+            <button
+              className="decision-btn approve active"
+              onClick={() => {
+                setExportError(null)
+                setShowExportDialog(true)
+              }}
+            >
+              Export Dashboard
+            </button>
+          )}
+        </div>
       </header>
 
       <DecisionSummary counts={summaryCounts} />
 
       {loadError && <p className="error">Failed to load dashboard: {loadError}</p>}
+
+      {showExportDialog && (
+        <ExportDialog
+          counts={summaryCounts}
+          targetLanguage={targetLanguage}
+          exporting={exporting}
+          error={exportError}
+          onConfirm={handleConfirmExport}
+          onCancel={() => setShowExportDialog(false)}
+        />
+      )}
 
       <div className="layout">
         <aside>

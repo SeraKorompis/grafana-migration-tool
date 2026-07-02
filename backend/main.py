@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from dashboard_exporter import build_migrated_dashboard
 from dashboard_parser import load_dashboard, parse_dashboard
 from translator import TranslationError, translate_query
 
@@ -38,6 +39,18 @@ class Panel(BaseModel):
 
 class TranslateRequest(BaseModel):
     panel: Panel
+    target_language: str = "InfluxDB Flux"
+
+
+class QueryDecision(BaseModel):
+    panel_id: int
+    ref_id: str
+    status: str
+    translated_query: Optional[str] = None
+
+
+class ExportRequest(BaseModel):
+    decisions: list[QueryDecision]
     target_language: str = "InfluxDB Flux"
 
 
@@ -90,3 +103,14 @@ async def translate_panel(request: TranslateRequest):
         "target_language": request.target_language,
         "translations": translations,
     }
+
+
+@app.post("/export")
+def export_dashboard(request: ExportRequest):
+    dashboard = load_dashboard(SAMPLE_DASHBOARD_PATH)
+    decisions = {
+        (d.panel_id, d.ref_id): {"status": d.status, "translated_query": d.translated_query}
+        for d in request.decisions
+    }
+    migrated = build_migrated_dashboard(dashboard, decisions, request.target_language)
+    return {"dashboard": migrated}
