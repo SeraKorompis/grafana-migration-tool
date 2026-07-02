@@ -119,6 +119,119 @@ header select {
   color: #fed7aa;
 }
 
+.badge-approved {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
+.badge-rejected {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.badge-edited {
+  background: #1e3a8a;
+  color: #bfdbfe;
+}
+
+.badge-pending {
+  background: #334155;
+  color: #cbd5e1;
+}
+
+.decision-summary {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.decision-summary .summary-item {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.panel-status {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.panel-status.complete {
+  color: #4ade80;
+}
+
+.panel-status.partial {
+  color: #fbbf24;
+}
+
+.decision {
+  margin-top: 0.75rem;
+}
+
+.decision-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.decision-btn {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: inherit;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.decision-btn.approve.active {
+  background: #14532d;
+  border-color: #22c55e;
+  color: #bbf7d0;
+}
+
+.decision-btn.reject.active {
+  background: #7f1d1d;
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.decision-btn.edit.active {
+  background: #1e3a8a;
+  border-color: #3b82f6;
+  color: #bfdbfe;
+}
+
+.edit-box {
+  margin-top: 0.6rem;
+}
+
+.edit-box textarea {
+  width: 100%;
+  background: #0f172a;
+  color: inherit;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.6rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .query-block {
   margin-bottom: 0.75rem;
 }
