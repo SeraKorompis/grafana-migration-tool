@@ -11,9 +11,8 @@ from translator import TranslationError, translate_query
 
 app = FastAPI(title="Grafana Migration Tool API")
 
-SAMPLE_DASHBOARD_PATH = (
-    Path(__file__).resolve().parent.parent / "sample_data" / "promotheus-sample-0.json"
-)
+SAMPLE_DATA_DIR = Path(__file__).resolve().parent.parent / "sample_data"
+DEFAULT_DASHBOARD_FILE = "promotheus-sample-0.json"
 
 DATASOURCE_TYPE_TO_QUERY_LANGUAGE = {
     "prometheus": "PromQL",
@@ -52,6 +51,19 @@ class QueryDecision(BaseModel):
 class ExportRequest(BaseModel):
     decisions: list[QueryDecision]
     target_language: str = "InfluxDB Flux"
+    file: Optional[str] = None
+
+
+def _resolve_dashboard_path(filename: Optional[str]) -> Path:
+    name = filename or DEFAULT_DASHBOARD_FILE
+    # filename is caller-controlled (query param / request body) — restrict to a
+    # bare *.json filename inside sample_data to rule out path traversal.
+    if name != Path(name).name or not name.endswith(".json"):
+        raise HTTPException(status_code=400, detail=f"Invalid dashboard file: {name}")
+    path = SAMPLE_DATA_DIR / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Dashboard file not found: {name}")
+    return path
 
 
 def _source_language_for(datasource: Any) -> str:
@@ -78,9 +90,15 @@ def health_check():
     return {"status": "ok"}
 
 
+@app.get("/dashboards")
+def list_dashboards():
+    files = sorted(p.name for p in SAMPLE_DATA_DIR.glob("*.json"))
+    return {"files": files, "default": DEFAULT_DASHBOARD_FILE}
+
+
 @app.get("/parse")
-def parse_sample_dashboard():
-    dashboard = load_dashboard(SAMPLE_DASHBOARD_PATH)
+def parse_sample_dashboard(file: Optional[str] = None):
+    dashboard = load_dashboard(_resolve_dashboard_path(file))
     return parse_dashboard(dashboard)
 
 
@@ -107,7 +125,7 @@ async def translate_panel(request: TranslateRequest):
 
 @app.post("/export")
 def export_dashboard(request: ExportRequest):
-    dashboard = load_dashboard(SAMPLE_DASHBOARD_PATH)
+    dashboard = load_dashboard(_resolve_dashboard_path(request.file))
     decisions = {
         (d.panel_id, d.ref_id): {"status": d.status, "translated_query": d.translated_query}
         for d in request.decisions

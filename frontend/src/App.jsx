@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchPanels, translatePanel, exportDashboard } from './api'
+import { fetchDashboardList, fetchPanels, translatePanel, exportDashboard } from './api'
 import PanelList from './components/PanelList'
 import TranslationResult from './components/TranslationResult'
 import DecisionSummary from './components/DecisionSummary'
@@ -23,6 +23,8 @@ function downloadJson(data, filename) {
 const TARGET_LANGUAGES = ['InfluxDB Flux', 'LogQL', 'SQL']
 
 function App() {
+  const [dashboardFiles, setDashboardFiles] = useState([])
+  const [selectedFile, setSelectedFile] = useState(null)
   const [panels, setPanels] = useState([])
   const [loadError, setLoadError] = useState(null)
   const [selectedPanel, setSelectedPanel] = useState(null)
@@ -39,10 +41,31 @@ function App() {
   const [exportError, setExportError] = useState(null)
 
   useEffect(() => {
-    fetchPanels()
-      .then(setPanels)
+    fetchDashboardList()
+      .then((data) => {
+        setDashboardFiles(data.files)
+        setSelectedFile(data.default ?? data.files[0])
+      })
       .catch((err) => setLoadError(err.message))
   }, [])
+
+  useEffect(() => {
+    if (!selectedFile) return
+    fetchPanels(selectedFile)
+      .then(setPanels)
+      .catch((err) => setLoadError(err.message))
+  }, [selectedFile])
+
+  function handleSelectDashboard(file) {
+    // Panel ids are only unique within a dashboard file, so decisions and cached
+    // translations from the previous dashboard would otherwise bleed into this one.
+    setSelectedFile(file)
+    setPanels([])
+    setSelectedPanel(null)
+    setTranslationsCache({})
+    setDecisions({})
+    setTranslateError(null)
+  }
 
   useEffect(() => {
     if (!selectedPanel) return
@@ -93,7 +116,7 @@ function App() {
           translated_query: d.translatedQuery,
         }
       })
-      const data = await exportDashboard(decisionList, targetLanguage)
+      const data = await exportDashboard(decisionList, targetLanguage, selectedFile)
       downloadJson(data.dashboard, `${slugify(data.dashboard.title)}.json`)
       setShowExportDialog(false)
     } catch (err) {
@@ -121,6 +144,16 @@ function App() {
       <header>
         <h1>Grafana Migration Tool</h1>
         <div className="header-controls">
+          <label>
+            Dashboard:{' '}
+            <select value={selectedFile ?? ''} onChange={(e) => handleSelectDashboard(e.target.value)}>
+              {dashboardFiles.map((file) => (
+                <option key={file} value={file}>
+                  {file}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Target language:{' '}
             <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
