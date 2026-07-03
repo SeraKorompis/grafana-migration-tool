@@ -1,0 +1,57 @@
+{
+  "panels": [
+    {
+      "id": 1,
+      "title": "Orders This Hour",
+      "type": "stat",
+      "description": "Completed orders placed in the last hour, across all regions",
+      "datasource": {"type": "prometheus", "uid": "${ds_prometheus}"},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(orders_total{status=\"completed\"}[1h]))"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Revenue",
+      "type": "stat",
+      "description": "Revenue collected in the last hour, across all regions/currencies",
+      "datasource": {"type": "prometheus", "uid": "${ds_prometheus}"},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(revenue_dollars_total[1h]))"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Active Premium Users",
+      "type": "gauge",
+      "description": "Current active users on the pro or enterprise plan",
+      "datasource": {"type": "prometheus", "uid": "${ds_prometheus}"},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(active_users_gauge{plan=~\"pro|enterprise\"})"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Checkout Errors",
+      "type": "timeseries",
+      "description": "Checkout error rate by error type",
+      "datasource": {"type": "prometheus", "uid": "${ds_prometheus}"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {"refId": "A", "expr": "sum by (error_type) (rate(checkout_errors_total[5m]))", "legendFormat": "{{error_type}}"}
+      ]
+    }
+  ],
+  "title": "Business Metrics Demo (4-panel)",
+  "uid": "biz-demo-4panel-v1",
+  "tags": ["business", "ecommerce"],
+  "templating": {
+    "list": [
+      {"name": "ds_prometheus", "type": "datasource", "query": "prometheus"}
+    ]
+  },
+  "_source_note": "Hand-built demo dashboard against the fake e-commerce Prometheus exporter (schema-sources/fake_prometheus_exporter.py), for exercising schema-grounded translation to InfluxDB."
+}
