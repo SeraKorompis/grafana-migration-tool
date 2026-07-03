@@ -72,7 +72,7 @@ function SchemaMappingScreen({ onConfirm }) {
     )
   }
 
-  const prometheusCount = schema?.prometheus?.metric_names?.length ?? 0
+  const prometheusCount = Object.keys(schema?.prometheus?.metrics ?? {}).length
   const influxCount = Object.keys(schema?.influxdb?.measurements ?? {}).length
 
   return (

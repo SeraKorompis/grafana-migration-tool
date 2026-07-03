@@ -84,33 +84,67 @@ the query, use that exact name verbatim - never invent a placeholder like "your-
 it blank. If no bucket name is given below the query and the translation still needs one, use an \
 obviously-fake placeholder (e.g. "REPLACE_ME_BUCKET") AND set "needs_review" to true - a query \
 with a guessed bucket name is not safe to trust silently.
-- Flux groups by all tags by default, but PromQL aggregations like `sum(...)`/`avg(...)` with no \
-"by (...)" clause implicitly merge across ALL labels into one result. When translating such an \
-implicitly-full-merge PromQL query to Flux, you MUST insert an explicit `group(columns: [])` (or \
-`group(columns: ["_measurement", "_field"])` to keep those but drop the tag columns) before the \
-final aggregation step - otherwise Flux silently keeps each tag combination as its own separate \
-number instead of merging them the way PromQL does. Always set "needs_review" to true for this \
-class of translation (implicit full-merge PromQL aggregation -> Flux), even when the rest of the \
-translation looks direct, since this class of bug is easy to introduce.
-- The target Grafana panel type (given below the query, if known) determines how the Flux \
-pipeline must end:
-  - "stat"/"gauge" panels expect a single current value. End with exactly one flattening \
-aggregate call with no time window, chosen by what the PromQL query is actually computing:
-    - If the query uses `rate()`, `irate()`, or `increase()` (a counter-derived total/rate), end \
-with `group(columns: [])` then `sum()`.
-    - Otherwise - a bare aggregation over a gauge-type metric with none of those functions, e.g. \
-plain `sum(some_gauge{...})` - you MUST call `last()` on each tag-group FIRST (before any \
-`group(columns: [])` merge), so each series' own most recent value is captured, THEN \
-`group(columns: [])` to merge, THEN `sum()`. Do not skip the per-group `last()` step: summing a \
-gauge's raw samples over the whole visible range adds up hundreds of samples into a meaningless \
-inflated number instead of reporting its current value - this is a common, easy-to-miss mistake.
+- Aggregation/grouping in Flux vs PromQL - Flux tables are grouped by ALL tags by default:
+  - A PromQL aggregation with an explicit "by (...)" clause keeps exactly those labels as \
+separate groups and merges away everything else. If Flux's default per-tag grouping doesn't \
+already match those columns, add `group(columns: [<by-columns>])` to reshape down to exactly the \
+"by" columns. This is a RESHAPE only - never follow it with an additional flattening aggregate \
+call, since the "by" clause deliberately keeps those groups separate rather than collapsing them.
+  - A PromQL aggregation with NO "by"/"without" clause implicitly merges across ALL labels into a \
+single result. Translate this with `group(columns: [])` (or `group(columns: ["_measurement", \
+"_field"])` to keep those but drop the tag columns) followed by exactly one flattening aggregate \
+call (see the panel-type rules below for which one) - otherwise Flux silently keeps each tag \
+combination as its own separate number instead of merging them the way PromQL does. Always set \
+"needs_review" to true for this implicit-full-merge case, even when the rest of the translation \
+looks direct, since it's easy to introduce incorrectly.
+- The target Grafana panel type (given below the query, if known) determines what the pipeline's \
+final step may be:
+  - "stat"/"gauge" panels expect a single current value. Only when the source query is the \
+implicit-full-merge case above should the pipeline end with a flattening aggregate call: `sum()` \
+for a counter-derived total (the query used `rate()`/`irate()`/`increase()`), or, for a bare \
+aggregation over a gauge-type metric with none of those functions, `last()` per tag-group FIRST \
+(before the `group(columns: [])` merge) then `sum()` - never sum a gauge's raw samples over the \
+whole visible range, that adds up hundreds of samples into a meaningless inflated number instead \
+of reporting its current value.
+    Worked example: PromQL `sum(some_gauge{plan=~"a|b"})` on a "gauge" panel with two matching \
+tag-groups (plan="a", plan="b") MUST call `last()` BEFORE `group(columns: [])`, never after:
+        |> filter(...)
+        |> last()
+        |> group(columns: [])
+        |> sum()
+    Putting `group(columns: [])` before `last()` is wrong and silently produces a bad number: it \
+merges both tag-groups' raw samples into one table first, so `last()` then returns only whichever \
+single sample happens to be most recent across BOTH groups combined - discarding the other \
+group's value entirely - instead of each group's own latest value being captured and then summed.
   - "timeseries"/"graph" panels plot a line over time and need the `_time` column preserved on \
-every output row. Do NOT end the pipeline with a bare flattening aggregate call (e.g. a trailing \
-`sum()`/`mean()`/`last()` with no window) - it drops `_time` and breaks the chart ("Data is \
-missing a time field"). Stop after `aggregateWindow(...)` (or `derivative`/`difference`), which \
-already produces one row per time bucket.
+every output row, REGARDLESS of whether the source query used "by" or implicit full-merge. Do NOT \
+end the pipeline with a bare flattening aggregate call (a trailing `sum()`/`mean()`/`last()` with \
+no window) - it drops `_time` and breaks the chart ("Data is missing a time field"). Stop after \
+`aggregateWindow(...)` (or `derivative`/`difference`), which already produces one row per time \
+bucket - even the implicit-full-merge case feeding a timeseries panel should stop there, using \
+`group(columns: [])` only to merge tags and never following it with a flattening call.
   - If the panel type is missing or doesn't clearly indicate either case, prefer preserving \
 `_time` (the timeseries-safe approach) and set "needs_review" to true.
+  - Worked example: PromQL `sum by (mode) (rate(cpu_seconds_total[5m]))` on a "timeseries" panel \
+must end at `group()`, with NO trailing `sum()`/other flatten, even though the PromQL function is \
+literally named "sum":
+      from(bucket: "...")
+        |> range(...)
+        |> filter(fn: (r) => r["_measurement"] == "...")
+        |> filter(fn: (r) => r["_field"] == "...")
+        |> derivative(unit: 5m, nonNegative: true)
+        |> group(columns: ["mode"])
+    Do NOT add `|> sum()` after that `group()` - the PromQL function being literally named "sum" \
+does not mean the Flux translation needs a trailing `sum()` call; the "by" clause already did the \
+only aggregation this query needs (reshaping per-mode), and a timeseries panel must keep `_time`.
+- If the confirmed schema mapping given below the query includes label -> tag mappings for a \
+metric's labels (shown indented under that metric's measurement/field line), use those exact \
+target tag names when translating that metric's label filters/grouping - do NOT assume a \
+Prometheus label name carries over to InfluxDB unchanged just because the strings match, and do \
+NOT assume it's unusable just because they differ. If the query uses a label with no \
+corresponding entry in the given label -> tag mappings, you must still translate it (using the \
+label name as-is, the same way you would with no mapping given at all), but set "needs_review" to \
+true and say in "mapping_reasoning" that this tag name is a guess.
 """
 
 
@@ -125,7 +159,12 @@ def _build_mapping_context(schema_mapping: list[dict] | None) -> str:
     for m in schema_mapping:
         measurement, _, field = m["target"].partition(".")
         lines.append(f'- {m["source"]} -> measurement="{measurement}", field="{field}"')
-    return "\n\nConfirmed schema mapping (source metric -> target measurement/field):\n" + "\n".join(lines)
+        for lm in m.get("label_mappings", []) or []:
+            lines.append(f'    label "{lm["source_label"]}" -> tag "{lm["target_tag"]}"')
+    return (
+        "\n\nConfirmed schema mapping (source metric -> target measurement/field, with any "
+        "label -> tag mappings indented beneath):\n" + "\n".join(lines)
+    )
 
 
 def _build_bucket_context(target_bucket: str | None) -> str:

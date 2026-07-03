@@ -11,7 +11,7 @@ from schema_introspection import (
     INFLUXDB_BUCKET,
     SchemaIntrospectionError,
     get_influxdb_schema,
-    get_prometheus_metric_names,
+    get_prometheus_schema,
 )
 from schema_mapper import MappingError, propose_schema_mapping
 from translator import TranslationError, translate_query
@@ -107,7 +107,7 @@ async def get_schema():
     result = {}
 
     try:
-        result["prometheus"] = {"metric_names": await get_prometheus_metric_names()}
+        result["prometheus"] = {"metrics": await get_prometheus_schema()}
     except SchemaIntrospectionError as exc:
         result["prometheus"] = {"error": str(exc)}
 
@@ -126,7 +126,7 @@ async def propose_mapping():
     (see docker-compose.yml).
     """
     try:
-        prometheus_schema = {"metric_names": await get_prometheus_metric_names()}
+        prometheus_schema = {"metrics": await get_prometheus_schema()}
     except SchemaIntrospectionError as exc:
         raise HTTPException(status_code=502, detail=f"Prometheus schema unavailable: {exc}") from exc
 

@@ -17,19 +17,36 @@ class SchemaIntrospectionError(RuntimeError):
     pass
 
 
-async def get_prometheus_metric_names() -> list[str]:
-    """Return every metric name currently scraped by the live Prometheus instance."""
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
-        try:
-            response = await client.get(f"{PROMETHEUS_URL}/api/v1/label/__name__/values")
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise SchemaIntrospectionError(f"Prometheus request failed: {exc}") from exc
+async def _prometheus_get(client: httpx.AsyncClient, path: str, params: dict) -> dict:
+    try:
+        response = await client.get(f"{PROMETHEUS_URL}{path}", params=params)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise SchemaIntrospectionError(f"Prometheus request failed: {exc}") from exc
 
     body = response.json()
     if body.get("status") != "success":
         raise SchemaIntrospectionError(f"Unexpected Prometheus response: {body}")
-    return sorted(body["data"])
+    return body["data"]
+
+
+async def get_prometheus_schema() -> dict[str, dict[str, list[str]]]:
+    """Return {metric_name: {"labels": [...]}} for every metric currently scraped.
+
+    Label names come from unioning the label keys across every actual series for that
+    metric (via /api/v1/series) rather than /api/v1/labels, which returns every label
+    name in the whole instance with no per-metric breakdown.
+    """
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+        metric_names = sorted(await _prometheus_get(client, "/api/v1/label/__name__/values", {}))
+
+        schema = {}
+        for metric in metric_names:
+            series_list = await _prometheus_get(client, "/api/v1/series", {"match[]": metric})
+            labels = {key for series in series_list for key in series}
+            labels.discard("__name__")
+            schema[metric] = {"labels": sorted(labels)}
+        return schema
 
 
 async def _influxql(client: httpx.AsyncClient, query: str) -> list[list[str]]:
