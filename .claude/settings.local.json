@@ -78,7 +78,8 @@
       "Bash(SEED_LOOP=1 SEED_LOOP_INTERVAL_SECONDS=5 timeout 18 python schema-sources/seed_influxdb.py)",
       "Bash(docker exec grafana-migration-tool-influx-seeder-1 *)",
       "Bash(curl -s \"http://localhost:8000/parse?file=business-demo.json\")",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(git push *)"
     ]
   }
 }
