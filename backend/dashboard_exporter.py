@@ -45,6 +45,7 @@ def build_migrated_dashboard(
     """
     target_datasource_type = TARGET_LANGUAGE_TO_DATASOURCE_TYPE.get(target_language)
     target_query_field = TARGET_LANGUAGE_TO_QUERY_FIELD.get(target_language, "expr")
+    any_panel_migrated = False
 
     for panel in dashboard.get("panels", []):
         panel_id = panel.get("id")
@@ -74,6 +75,13 @@ def build_migrated_dashboard(
 
         if panel_fully_migrated and target_datasource_type:
             panel["datasource"] = {"type": target_datasource_type, "uid": f"${{ds_{target_datasource_type}}}"}
+            any_panel_migrated = True
+
+    if any_panel_migrated and target_datasource_type:
+        variable_name = f"ds_{target_datasource_type}"
+        variable_list = dashboard.setdefault("templating", {}).setdefault("list", [])
+        if not any(variable.get("name") == variable_name for variable in variable_list):
+            variable_list.append({"name": variable_name, "type": "datasource", "query": target_datasource_type})
 
     original_uid = dashboard.get("uid")
     if original_uid:
