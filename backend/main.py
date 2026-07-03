@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from dashboard_exporter import build_migrated_dashboard
 from dashboard_parser import load_dashboard, parse_dashboard
 from schema_introspection import SchemaIntrospectionError, get_influxdb_schema, get_prometheus_metric_names
+from schema_mapper import MappingError, propose_schema_mapping
 from translator import TranslationError, translate_query
 
 app = FastAPI(title="Grafana Migration Tool API")
@@ -109,6 +110,30 @@ async def get_schema():
         result["influxdb"] = {"error": str(exc)}
 
     return result
+
+
+@app.post("/propose-mapping")
+async def propose_mapping():
+    """Ask the LLM to propose source-metric -> target-measurement.field mappings,
+    grounded in the live schema of both the Prometheus and InfluxDB instances
+    (see docker-compose.yml).
+    """
+    try:
+        prometheus_schema = {"metric_names": await get_prometheus_metric_names()}
+    except SchemaIntrospectionError as exc:
+        raise HTTPException(status_code=502, detail=f"Prometheus schema unavailable: {exc}") from exc
+
+    try:
+        influxdb_schema = {"measurements": await get_influxdb_schema()}
+    except SchemaIntrospectionError as exc:
+        raise HTTPException(status_code=502, detail=f"InfluxDB schema unavailable: {exc}") from exc
+
+    try:
+        mappings = await propose_schema_mapping(prometheus_schema, influxdb_schema)
+    except MappingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"mappings": mappings}
 
 
 @app.get("/dashboards")
