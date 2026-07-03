@@ -123,6 +123,15 @@ Then:
 `docker-compose down` to stop, or `docker-compose down -v` to also drop the
 InfluxDB data volume.
 
+With the stack up and the backend running, `GET /schema` queries both live instances
+and returns their actual current schema — Prometheus metric names (via
+`/api/v1/label/__name__/values`) and InfluxDB measurements/fields/tags (via
+`SHOW MEASUREMENTS`/`SHOW FIELD KEYS`/`SHOW TAG KEYS` against InfluxDB's v1-compat
+API). Each source is independent: if one is unreachable, that side comes back as
+`{"error": "..."}` instead of failing the whole request. Connection settings default
+to the `docker-compose.yml` values and can be overridden in `.env` (see
+`.env.example`).
+
 ## Project layout
 
 ```
@@ -142,5 +151,7 @@ query with decisions tracked across the dashboard, and export (`POST /export`) t
 download a migrated Grafana dashboard JSON.
 
 The schema introspection sandbox (Prometheus + fake exporter + InfluxDB via
-`docker-compose up`) is in place, but the backend doesn't query it yet — translation
-is still based on the query text alone, not a live schema lookup.
+`docker-compose up`) is in place, and the backend can now pull each side's live
+schema via `GET /schema`. That schema isn't wired into translation yet, though —
+`POST /translate` still only sees the query text, not the real metric/measurement
+names, so grounding translation in the live schema is the next step.
