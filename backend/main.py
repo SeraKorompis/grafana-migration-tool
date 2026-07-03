@@ -7,7 +7,12 @@ from pydantic import BaseModel
 
 from dashboard_exporter import build_migrated_dashboard
 from dashboard_parser import load_dashboard, parse_dashboard
-from schema_introspection import SchemaIntrospectionError, get_influxdb_schema, get_prometheus_metric_names
+from schema_introspection import (
+    INFLUXDB_BUCKET,
+    SchemaIntrospectionError,
+    get_influxdb_schema,
+    get_prometheus_metric_names,
+)
 from schema_mapper import MappingError, propose_schema_mapping
 from translator import TranslationError, translate_query
 
@@ -34,6 +39,7 @@ class PanelQuery(BaseModel):
 class Panel(BaseModel):
     id: Optional[int] = None
     title: Optional[str] = None
+    type: Optional[str] = None
     datasource: Optional[Any] = None
     queries: list[PanelQuery]
 
@@ -154,12 +160,18 @@ async def translate_panel(request: TranslateRequest):
     source_language = _source_language_for(request.panel.datasource)
 
     schema_mapping_by_source = {m["source"]: m for m in (request.schema_mapping or [])}
+    target_bucket = INFLUXDB_BUCKET if request.target_language == "InfluxDB Flux" else None
 
     translations = []
     for query in request.panel.queries:
         try:
             result = await translate_query(
-                query.expr, source_language, request.target_language, request.schema_mapping
+                query.expr,
+                source_language,
+                request.target_language,
+                request.schema_mapping,
+                target_bucket,
+                request.panel.type,
             )
         except TranslationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc

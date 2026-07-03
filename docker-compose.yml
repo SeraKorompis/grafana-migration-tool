@@ -27,5 +27,17 @@ services:
     volumes:
       - influxdb-data:/var/lib/influxdb2
 
+  influx-seeder:
+    build: ./schema-sources
+    command: ["python", "-u", "seed_influxdb.py"]
+    environment:
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_ORG: hackathon
+      INFLUXDB_BUCKET: ecommerce
+      INFLUXDB_TOKEN: dev-token-please-change
+      SEED_LOOP: "1"
+    depends_on:
+      - influxdb
+
 volumes:
   influxdb-data:

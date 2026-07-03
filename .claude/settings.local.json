@@ -70,7 +70,15 @@
       "Bash(NODE_PATH=\"C:\\\\Users\\\\Seraphina Korompis\\\\uk-ai-agent-hackathon\\\\grafana-migration-tool\\\\frontend\\\\node_modules\" node test_mapping.js)",
       "Bash(NODE_PATH=\"C:\\\\Users\\\\Seraphina Korompis\\\\uk-ai-agent-hackathon\\\\grafana-migration-tool\\\\frontend\\\\node_modules\" node debug1.js)",
       "Bash(timeout 15 bash -c 'until curl -sf http://localhost:8000/health >/dev/null 2>&1; do sleep 1; done')",
-      "Bash(curl -s -X POST http://localhost:8000/translate -H 'Content-Type: application/json' -d '{ *)"
+      "Bash(curl -s -X POST http://localhost:8000/translate -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s --max-time 3 http://localhost:8000/health)",
+      "Bash(timeout 8 bash -c 'until curl -sf http://localhost:5173 >/dev/null 2>&1; do sleep 1; done')",
+      "Bash(docker exec grafana-migration-tool-influxdb-1 *)",
+      "Bash(curl -s -X POST http://localhost:8086/api/v2/query?org=hackathon -H 'Authorization: Token dev-token-please-change' -H 'Accept: application/csv' -H 'Content-Type: application/vnd.flux' -d 'from\\(bucket: \"ecommerce\"\\) *)",
+      "Bash(SEED_LOOP=1 SEED_LOOP_INTERVAL_SECONDS=5 timeout 18 python schema-sources/seed_influxdb.py)",
+      "Bash(docker exec grafana-migration-tool-influx-seeder-1 *)",
+      "Bash(curl -s \"http://localhost:8000/parse?file=business-demo.json\")",
+      "Bash(curl *)"
     ]
   }
 }

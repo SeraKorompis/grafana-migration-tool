@@ -72,7 +72,7 @@ original dashboard.
 ## Schema introspection sandbox
 
 For grounding query translation in a real schema instead of a guessed one, a
-docker-compose stack spins up two live data sources plus a fake data generator:
+docker-compose stack spins up two live data sources plus two fake data generators:
 
 - **Prometheus** (`:9090`), scraping the fake exporter every 15s.
 - **`fake-exporter`** (`:9105`) — a small Python script
@@ -82,24 +82,16 @@ docker-compose stack spins up two live data sources plus a fake data generator:
   `checkout_errors_total{error_type}`. Values drift a little on every scrape
   (small counter increments, a gauge wobbling in the 200–400 range) so it behaves
   like a real small e-commerce backend instead of a static fixture.
-- **InfluxDB** (`:8086`) — the migration target, pre-initialized via env vars
+- **InfluxDB v2.7** (`:8086`) — the migration target, pre-initialized via env vars
   (org `hackathon`, bucket `ecommerce`, admin token `dev-token-please-change`).
-
-Run it with:
-
-```
-docker-compose up
-```
-
-Once InfluxDB is up, seed it once with data representing the same business
-concepts as the Prometheus side, but under deliberately different
-measurement/tag/field names — the kind of naming drift a real migration hits,
-so translation has a genuinely different target schema to ground against
-instead of assuming names carry over 1:1:
-
-```
-python schema-sources/seed_influxdb.py
-```
+- **`influx-seeder`** — runs `schema-sources/seed_influxdb.py` against InfluxDB,
+  writing data representing the same business concepts as the Prometheus side but
+  under deliberately different measurement/tag/field names (see table below) - the
+  kind of naming drift a real migration hits, so translation has a genuinely
+  different target schema to ground against instead of assuming names carry over
+  1:1. It backfills 6 hours of history on startup, then keeps writing a fresh point
+  every 60s indefinitely (like `fake-exporter`, so panels stay backed by live data
+  instead of going flat past the initial backfill).
 
 | Prometheus                              | InfluxDB                         |
 | ---------------------------------------- | --------------------------------- |
@@ -107,6 +99,12 @@ python schema-sources/seed_influxdb.py
 | `revenue_dollars_total{currency,region}` | `revenue{region,currency}` field `amount` |
 | `active_users_gauge{plan}`               | `users{plan}` field `active`     |
 | `checkout_errors_total{error_type}`      | `errors{type}` field `count`     |
+
+Run it with:
+
+```
+docker-compose up
+```
 
 Then:
 
@@ -119,6 +117,11 @@ Then:
   ```
   from(bucket: "ecommerce") |> range(start: -6h) |> filter(fn: (r) => r._measurement == "sales")
   ```
+- `docker-compose logs -f influx-seeder` to watch it write a fresh point every 60s.
+
+To re-seed on demand without the loop (e.g. against a bucket you reset by hand),
+`python schema-sources/seed_influxdb.py` still works standalone - set `SEED_LOOP=1`
+in its environment to make a standalone run loop too.
 
 `docker-compose down` to stop, or `docker-compose down -v` to also drop the
 InfluxDB data volume.

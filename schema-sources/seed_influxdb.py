@@ -1,4 +1,4 @@
-"""One-time seed script: writes synthetic sales data into InfluxDB.
+"""Seed script: writes synthetic sales data into InfluxDB.
 
 Populates InfluxDB with data that represents the same underlying business
 concepts as the Prometheus fake-exporter metrics, but under deliberately
@@ -12,9 +12,14 @@ ground against instead of assuming names carry over 1:1:
   active_users_gauge{plan}             -> users{plan}            field: active
   checkout_errors_total{error_type}    -> errors{type}           field: count
 
-Run once, after `docker-compose up` has InfluxDB ready:
+Run once, after `docker-compose up` has InfluxDB ready, to backfill history:
 
     python schema-sources/seed_influxdb.py
+
+Set SEED_LOOP=1 to keep running afterwards, writing one fresh point per
+series every SEED_LOOP_INTERVAL_SECONDS (default 60) so panels stay backed
+by live-looking data instead of going flat past the initial backfill. This
+is how docker-compose.yml's `influx-seeder` service runs it.
 """
 import os
 import random
@@ -27,6 +32,9 @@ INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "hackathon")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "ecommerce")
 INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "dev-token-please-change")
 
+SEED_LOOP = os.environ.get("SEED_LOOP", "0") == "1"
+SEED_LOOP_INTERVAL_SECONDS = int(os.environ.get("SEED_LOOP_INTERVAL_SECONDS", "60"))
+
 REGIONS = ["us", "eu", "apac"]
 ORDER_STATUSES = ["completed", "cancelled", "refunded"]
 REGION_CURRENCY = {"us": "USD", "eu": "EUR", "apac": "GBP"}
@@ -38,49 +46,75 @@ HISTORY_HOURS = 6
 STEP_MINUTES = 5
 
 
-def _timestamps() -> list[float]:
+def _backfill_timestamps() -> list[float]:
     now = time.time()
     steps = int(HISTORY_HOURS * 60 / STEP_MINUTES)
     return [now - (steps - i) * STEP_MINUTES * 60 for i in range(steps + 1)]
 
 
-def build_lines() -> list[str]:
-    """Build line-protocol points for a walk from 6 hours ago up to now."""
-    lines = []
+def _wait_for_influxdb_ready(timeout_seconds: int = 60) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"{INFLUXDB_URL}/health", timeout=5) as response:
+                if response.status == 200:
+                    return
+        except (urllib.error.URLError, TimeoutError):
+            pass
+        time.sleep(2)
+    raise RuntimeError(f"InfluxDB at {INFLUXDB_URL} was not ready within {timeout_seconds}s")
 
-    sales_totals = {(status, region): 0 for status in ORDER_STATUSES for region in REGIONS}
-    revenue_totals = {region: 0.0 for region in REGIONS}
-    error_totals = {error_type: 0 for error_type in ERROR_TYPES}
-    active_users = {plan: random.uniform(200, 400) for plan in PLANS}
 
-    for ts in _timestamps():
+class SeriesState:
+    """Cumulative counters/gauge, carried forward so a continuing loop keeps
+    incrementing from where the backfill left off instead of resetting to zero.
+    """
+
+    def __init__(self):
+        self.sales_totals = {(status, region): 0 for status in ORDER_STATUSES for region in REGIONS}
+        self.revenue_totals = {region: 0.0 for region in REGIONS}
+        self.error_totals = {error_type: 0 for error_type in ERROR_TYPES}
+        self.active_users = {plan: random.uniform(200, 400) for plan in PLANS}
+
+    def step(self, ts: float) -> list[str]:
+        """Advance one tick and return this tick's line-protocol points."""
         ts_ns = int(ts * 1e9)
+        lines = []
 
-        for status, region in sales_totals:
+        for status, region in self.sales_totals:
             weight = 0.35 if status == "completed" else 0.08
             if random.random() < weight:
                 count = random.randint(1, 3)
-                sales_totals[(status, region)] += count
+                self.sales_totals[(status, region)] += count
                 if status == "completed":
-                    revenue_totals[region] += count * random.uniform(*ORDER_VALUE_RANGE)
+                    self.revenue_totals[region] += count * random.uniform(*ORDER_VALUE_RANGE)
             lines.append(
-                f"sales,region={region},status={status} count={sales_totals[(status, region)]}i {ts_ns}"
+                f"sales,region={region},status={status} count={self.sales_totals[(status, region)]}i {ts_ns}"
             )
 
-        for region, amount in revenue_totals.items():
+        for region, amount in self.revenue_totals.items():
             currency = REGION_CURRENCY[region]
             lines.append(f"revenue,region={region},currency={currency} amount={amount:.2f} {ts_ns}")
 
-        for error_type in error_totals:
+        for error_type in self.error_totals:
             if random.random() < 0.1:
-                error_totals[error_type] += 1
-            lines.append(f"errors,type={error_type} count={error_totals[error_type]}i {ts_ns}")
+                self.error_totals[error_type] += 1
+            lines.append(f"errors,type={error_type} count={self.error_totals[error_type]}i {ts_ns}")
 
-        for plan in active_users:
-            active_users[plan] = min(400, max(200, active_users[plan] + random.uniform(-8, 8)))
-            lines.append(f"users,plan={plan} active={active_users[plan]:.1f} {ts_ns}")
+        for plan in self.active_users:
+            self.active_users[plan] = min(400, max(200, self.active_users[plan] + random.uniform(-8, 8)))
+            lines.append(f"users,plan={plan} active={self.active_users[plan]:.1f} {ts_ns}")
 
-    return lines
+        return lines
+
+
+def build_backfill() -> tuple[list[str], SeriesState]:
+    """Build line-protocol points for a walk from HISTORY_HOURS ago up to now."""
+    state = SeriesState()
+    lines = []
+    for ts in _backfill_timestamps():
+        lines.extend(state.step(ts))
+    return lines, state
 
 
 def write_lines(lines: list[str]) -> None:
@@ -101,7 +135,17 @@ def write_lines(lines: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    points = build_lines()
-    print(f"Writing {len(points)} points to {INFLUXDB_URL} (org={INFLUXDB_ORG}, bucket={INFLUXDB_BUCKET})...")
-    write_lines(points)
+    _wait_for_influxdb_ready()
+
+    lines, state = build_backfill()
+    print(f"Writing {len(lines)} points to {INFLUXDB_URL} (org={INFLUXDB_ORG}, bucket={INFLUXDB_BUCKET})...")
+    write_lines(lines)
     print("Done. Measurements written: sales, revenue, users, errors")
+
+    if SEED_LOOP:
+        print(f"Looping: writing a fresh point every {SEED_LOOP_INTERVAL_SECONDS}s (Ctrl+C to stop)...")
+        while True:
+            time.sleep(SEED_LOOP_INTERVAL_SECONDS)
+            now = time.time()
+            write_lines(state.step(now))
+            print(f"Wrote a fresh point at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))}")

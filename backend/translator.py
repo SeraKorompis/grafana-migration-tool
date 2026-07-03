@@ -71,6 +71,46 @@ concatenate them into a single "measurement.field" string in the translated quer
 you must still translate it (guessing a measurement/field the same way you would if no mapping \
 were given at all), but set "needs_review" to true regardless of how direct the translation \
 otherwise looks.
+- When translating to Flux: `aggregateWindow`'s `fn` argument only accepts genuine Flux reducers \
+(`mean`, `sum`, `count`, `min`, `max`, `last`, `first`, etc.). PromQL counter functions like \
+`rate`, `irate`, and `increase` are NOT valid `fn` values (e.g. `aggregateWindow(fn: rate, ...)` \
+or `aggregateWindow(fn: increase, ...)` are invalid Flux and will fail at query time). Instead:
+  - For `rate()`/`irate()`, use `derivative(unit: <window>, nonNegative: true)`.
+  - For `increase()`, use `aggregateWindow(every: <window>, fn: last, createEmpty: false)` \
+followed by `difference(nonNegative: true)` (this gives the increase within each window, \
+matching PromQL's `increase()` more closely than a raw derivative would).
+- When translating to a Flux `from(bucket: "...")` call: if a target bucket name is given below \
+the query, use that exact name verbatim - never invent a placeholder like "your-bucket" or leave \
+it blank. If no bucket name is given below the query and the translation still needs one, use an \
+obviously-fake placeholder (e.g. "REPLACE_ME_BUCKET") AND set "needs_review" to true - a query \
+with a guessed bucket name is not safe to trust silently.
+- Flux groups by all tags by default, but PromQL aggregations like `sum(...)`/`avg(...)` with no \
+"by (...)" clause implicitly merge across ALL labels into one result. When translating such an \
+implicitly-full-merge PromQL query to Flux, you MUST insert an explicit `group(columns: [])` (or \
+`group(columns: ["_measurement", "_field"])` to keep those but drop the tag columns) before the \
+final aggregation step - otherwise Flux silently keeps each tag combination as its own separate \
+number instead of merging them the way PromQL does. Always set "needs_review" to true for this \
+class of translation (implicit full-merge PromQL aggregation -> Flux), even when the rest of the \
+translation looks direct, since this class of bug is easy to introduce.
+- The target Grafana panel type (given below the query, if known) determines how the Flux \
+pipeline must end:
+  - "stat"/"gauge" panels expect a single current value. End with exactly one flattening \
+aggregate call with no time window, chosen by what the PromQL query is actually computing:
+    - If the query uses `rate()`, `irate()`, or `increase()` (a counter-derived total/rate), end \
+with `group(columns: [])` then `sum()`.
+    - Otherwise - a bare aggregation over a gauge-type metric with none of those functions, e.g. \
+plain `sum(some_gauge{...})` - you MUST call `last()` on each tag-group FIRST (before any \
+`group(columns: [])` merge), so each series' own most recent value is captured, THEN \
+`group(columns: [])` to merge, THEN `sum()`. Do not skip the per-group `last()` step: summing a \
+gauge's raw samples over the whole visible range adds up hundreds of samples into a meaningless \
+inflated number instead of reporting its current value - this is a common, easy-to-miss mistake.
+  - "timeseries"/"graph" panels plot a line over time and need the `_time` column preserved on \
+every output row. Do NOT end the pipeline with a bare flattening aggregate call (e.g. a trailing \
+`sum()`/`mean()`/`last()` with no window) - it drops `_time` and breaks the chart ("Data is \
+missing a time field"). Stop after `aggregateWindow(...)` (or `derivative`/`difference`), which \
+already produces one row per time bucket.
+  - If the panel type is missing or doesn't clearly indicate either case, prefer preserving \
+`_time` (the timeseries-safe approach) and set "needs_review" to true.
 """
 
 
@@ -88,25 +128,57 @@ def _build_mapping_context(schema_mapping: list[dict] | None) -> str:
     return "\n\nConfirmed schema mapping (source metric -> target measurement/field):\n" + "\n".join(lines)
 
 
+def _build_bucket_context(target_bucket: str | None) -> str:
+    if not target_bucket:
+        return ""
+    return f'\n\nTarget InfluxDB bucket (use this exact name in `from(bucket: "...")`): "{target_bucket}"'
+
+
+def _build_panel_type_context(panel_type: str | None) -> str:
+    if not panel_type:
+        return ""
+    return f"\n\nTarget Grafana panel type: {panel_type}"
+
+
 def _build_user_prompt(
-    query: str, source_language: str, target_language: str, schema_mapping: list[dict] | None = None
+    query: str,
+    source_language: str,
+    target_language: str,
+    schema_mapping: list[dict] | None = None,
+    target_bucket: str | None = None,
+    panel_type: str | None = None,
 ) -> str:
     return (
         f"Source query language: {source_language}\n"
         f"Target query language: {target_language}\n"
         f"Query to translate:\n{query}"
         f"{_build_mapping_context(schema_mapping)}"
+        f"{_build_bucket_context(target_bucket)}"
+        f"{_build_panel_type_context(panel_type)}"
     )
 
 
 async def translate_query(
-    query: str, source_language: str, target_language: str, schema_mapping: list[dict] | None = None
+    query: str,
+    source_language: str,
+    target_language: str,
+    schema_mapping: list[dict] | None = None,
+    target_bucket: str | None = None,
+    panel_type: str | None = None,
 ) -> dict:
     """Translate a single query string via Venice's chat completions API.
 
     `schema_mapping`, if given, is the user-confirmed list of {source, target, ...} entries
     from POST /propose-mapping - grounding the translation in the real target schema instead
     of guessed measurement/field names.
+
+    `target_bucket`, if given, is the real InfluxDB bucket name (the same one schema_introspection
+    already queries against) - grounding `from(bucket: ...)` in a real value instead of a guessed
+    placeholder.
+
+    `panel_type`, if given, is the Grafana panel type (e.g. "stat", "gauge", "timeseries") - it
+    determines whether the Flux pipeline should end with a flattening aggregate (single-value
+    panels) or preserve `_time` (timeseries panels).
 
     Returns a dict with keys: translated_query, confidence, syntax_reasoning, mapping_reasoning,
     schema_mapping_applicable, mapping_used, needs_review. Raises TranslationError if the API
@@ -121,7 +193,9 @@ async def translate_query(
             {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": _build_user_prompt(query, source_language, target_language, schema_mapping),
+                "content": _build_user_prompt(
+                    query, source_language, target_language, schema_mapping, target_bucket, panel_type
+                ),
             },
         ],
         "response_format": {"type": "json_object"},

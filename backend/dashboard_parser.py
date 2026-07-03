@@ -26,6 +26,7 @@ def parse_dashboard(dashboard: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "id": panel.get("id"),
                 "title": panel.get("title"),
+                "type": panel.get("type"),
                 "datasource": panel.get("datasource"),
                 "queries": queries,
             }
