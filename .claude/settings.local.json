@@ -36,7 +36,13 @@
       "PowerShell(Get-Content *)",
       "PowerShell(Invoke-WebRequest -Uri \"http://localhost:5173\" -UseBasicParsing | Select-Object -ExpandProperty StatusCode)",
       "PowerShell(Get-NetTCPConnection *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(curl -s http://localhost:9105/metrics)",
+      "Bash(docker compose *)",
+      "Bash(curl -s http://localhost:9090/api/v1/targets)",
+      "Bash(curl -s 'http://localhost:9090/api/v1/query?query=orders_total')",
+      "Bash(curl -s http://localhost:8086/health)"
     ]
   }
 }

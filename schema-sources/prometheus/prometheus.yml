@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "fake_ecommerce"
+    static_configs:
+      - targets: ["fake-exporter:9105"]
