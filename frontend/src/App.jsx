@@ -4,6 +4,7 @@ import PanelList from './components/PanelList'
 import TranslationResult from './components/TranslationResult'
 import DecisionSummary from './components/DecisionSummary'
 import ExportDialog from './components/ExportDialog'
+import SchemaMappingScreen from './components/SchemaMappingScreen'
 import './App.css'
 
 function slugify(text) {
@@ -39,6 +40,8 @@ function App() {
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState(null)
+  // null = mapping step not yet confirmed; [] = confirmed but empty/skipped.
+  const [schemaMapping, setSchemaMapping] = useState(null)
 
   useEffect(() => {
     fetchDashboardList()
@@ -78,7 +81,7 @@ function App() {
     let cancelled = false
     setTranslateError(null)
     setTranslating(true)
-    translatePanel(selectedPanel, targetLanguage)
+    translatePanel(selectedPanel, targetLanguage, schemaMapping)
       .then((data) => {
         if (!cancelled) setTranslationsCache((prev) => ({ ...prev, [cacheKey]: data }))
       })
@@ -94,7 +97,7 @@ function App() {
     // translationsCache is read but intentionally left out of deps: we only
     // want to (re)fetch when the selected panel or target language changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPanel, targetLanguage])
+  }, [selectedPanel, targetLanguage, schemaMapping])
 
   function handleDecide(panelId, refId, status, translatedQuery) {
     setDecisions((prev) => ({
@@ -138,6 +141,17 @@ function App() {
 
   const result = selectedPanel ? translationsCache[`${selectedPanel.id}:${targetLanguage}`] ?? null : null
   const hasDecisions = Object.keys(decisions).length > 0
+
+  if (schemaMapping === null) {
+    return (
+      <div className="app">
+        <header>
+          <h1>Grafana Migration Tool</h1>
+        </header>
+        <SchemaMappingScreen onConfirm={setSchemaMapping} />
+      </div>
+    )
+  }
 
   return (
     <div className="app">

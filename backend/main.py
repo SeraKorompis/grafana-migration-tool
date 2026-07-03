@@ -41,6 +41,7 @@ class Panel(BaseModel):
 class TranslateRequest(BaseModel):
     panel: Panel
     target_language: str = "InfluxDB Flux"
+    schema_mapping: Optional[list[dict[str, Any]]] = None
 
 
 class QueryDecision(BaseModel):
@@ -155,7 +156,9 @@ async def translate_panel(request: TranslateRequest):
     translations = []
     for query in request.panel.queries:
         try:
-            result = await translate_query(query.expr, source_language, request.target_language)
+            result = await translate_query(
+                query.expr, source_language, request.target_language, request.schema_mapping
+            )
         except TranslationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         translations.append({"ref_id": query.ref_id, "source_expr": query.expr, **result})

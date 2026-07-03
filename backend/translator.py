@@ -46,6 +46,12 @@ Rules:
 boolean/comparison operators, or functions that do not have a clean 1:1 equivalent in the \
 target language. Set it to false only when the translation is a direct, unambiguous mapping.
 - If you set "needs_review" to true, "confidence" should generally be "medium" or "low".
+- If a confirmed schema mapping is given below the query, and the query references one of its \
+source metrics, use that mapping's exact measurement and field names rather than guessing. \
+"measurement" and "field" are separate attributes in the target schema (e.g. in Flux, separate \
+`r["_measurement"] == "<measurement>"` and `r["_field"] == "<field>"` filters) - never \
+concatenate them into a single "measurement.field" string in the translated query. For metrics \
+not covered by the mapping, translate as usual.
 """
 
 
@@ -53,16 +59,35 @@ class TranslationError(RuntimeError):
     pass
 
 
-def _build_user_prompt(query: str, source_language: str, target_language: str) -> str:
+def _build_mapping_context(schema_mapping: list[dict] | None) -> str:
+    if not schema_mapping:
+        return ""
+    lines = []
+    for m in schema_mapping:
+        measurement, _, field = m["target"].partition(".")
+        lines.append(f'- {m["source"]} -> measurement="{measurement}", field="{field}"')
+    return "\n\nConfirmed schema mapping (source metric -> target measurement/field):\n" + "\n".join(lines)
+
+
+def _build_user_prompt(
+    query: str, source_language: str, target_language: str, schema_mapping: list[dict] | None = None
+) -> str:
     return (
         f"Source query language: {source_language}\n"
         f"Target query language: {target_language}\n"
         f"Query to translate:\n{query}"
+        f"{_build_mapping_context(schema_mapping)}"
     )
 
 
-async def translate_query(query: str, source_language: str, target_language: str) -> dict:
+async def translate_query(
+    query: str, source_language: str, target_language: str, schema_mapping: list[dict] | None = None
+) -> dict:
     """Translate a single query string via Venice's chat completions API.
+
+    `schema_mapping`, if given, is the user-confirmed list of {source, target, ...} entries
+    from POST /propose-mapping - grounding the translation in the real target schema instead
+    of guessed measurement/field names.
 
     Returns a dict with keys: translated_query, confidence, reasoning, needs_review.
     Raises TranslationError if the API call fails or the model's response isn't
@@ -75,7 +100,10 @@ async def translate_query(query: str, source_language: str, target_language: str
         "model": TRANSLATION_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(query, source_language, target_language)},
+            {
+                "role": "user",
+                "content": _build_user_prompt(query, source_language, target_language, schema_mapping),
+            },
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
