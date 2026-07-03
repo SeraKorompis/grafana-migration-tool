@@ -50,8 +50,12 @@ target language. Set it to false only when the translation is a direct, unambigu
 source metrics, use that mapping's exact measurement and field names rather than guessing. \
 "measurement" and "field" are separate attributes in the target schema (e.g. in Flux, separate \
 `r["_measurement"] == "<measurement>"` and `r["_field"] == "<field>"` filters) - never \
-concatenate them into a single "measurement.field" string in the translated query. For metrics \
-not covered by the mapping, translate as usual.
+concatenate them into a single "measurement.field" string in the translated query.
+- If a confirmed schema mapping is given but the query references a metric NOT covered by it, \
+you must still translate it (guessing a measurement/field the same way you would if no mapping \
+were given at all), but explicitly say in "reasoning" that this metric has no confirmed mapping \
+and the target name is a guess, and set "needs_review" to true regardless of how direct the \
+translation otherwise looks.
 """
 
 
