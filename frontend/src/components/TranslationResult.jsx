@@ -8,6 +8,36 @@ function StatusBadge({ status }) {
   return <span className={`badge badge-${status}`}>{status}</span>
 }
 
+function MappingSection({ schemaMappingApplicable, mappingReasoning, mappingApplied }) {
+  const usesLowConfidenceMapping = mappingApplied.some((m) => m.confidence === 'low')
+
+  return (
+    <div className="reasoning mapping-section">
+      <div className="mapping-section-header">
+        <h4>Schema mapping applied</h4>
+        {usesLowConfidenceMapping && <span className="badge badge-low-mapping">uses low-confidence mapping</span>}
+      </div>
+      {!schemaMappingApplicable ? (
+        <p className="hint">No schema mapping needed</p>
+      ) : (
+        <>
+          <p>{mappingReasoning}</p>
+          {mappingApplied.length > 0 && (
+            <ul className="mapping-applied-list">
+              {mappingApplied.map((m) => (
+                <li key={m.source}>
+                  <code>{m.source}</code> → <code>{m.target}</code>{' '}
+                  <ConfidenceBadge confidence={m.confidence} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function TranslationResult({ selectedPanel, result, loading, error, decisions, onDecide }) {
   if (!selectedPanel) return <p className="hint">Select a panel to translate its queries.</p>
   if (loading) return <p className="hint">Translating {selectedPanel.title}…</p>
@@ -42,9 +72,14 @@ function TranslationResult({ selectedPanel, result, loading, error, decisions, o
               <pre>{t.translated_query}</pre>
             </div>
             <div className="reasoning">
-              <h4>Reasoning</h4>
-              <p>{t.reasoning}</p>
+              <h4>Syntax translation</h4>
+              <p>{t.syntax_reasoning}</p>
             </div>
+            <MappingSection
+              schemaMappingApplicable={t.schema_mapping_applicable}
+              mappingReasoning={t.mapping_reasoning}
+              mappingApplied={t.mapping_applied ?? []}
+            />
             <QueryDecision
               status={status}
               savedQuery={decision?.translatedQuery ?? null}

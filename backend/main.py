@@ -153,6 +153,8 @@ def parse_sample_dashboard(file: Optional[str] = None):
 async def translate_panel(request: TranslateRequest):
     source_language = _source_language_for(request.panel.datasource)
 
+    schema_mapping_by_source = {m["source"]: m for m in (request.schema_mapping or [])}
+
     translations = []
     for query in request.panel.queries:
         try:
@@ -161,7 +163,21 @@ async def translate_panel(request: TranslateRequest):
             )
         except TranslationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        translations.append({"ref_id": query.ref_id, "source_expr": query.expr, **result})
+
+        mapping_used = result.pop("mapping_used", [])
+        mapping_applied = [
+            {
+                "source": source,
+                "target": schema_mapping_by_source[source]["target"],
+                "confidence": schema_mapping_by_source[source]["confidence"],
+            }
+            for source in mapping_used
+            if source in schema_mapping_by_source
+        ]
+
+        translations.append(
+            {"ref_id": query.ref_id, "source_expr": query.expr, "mapping_applied": mapping_applied, **result}
+        )
 
     return {
         "panel_id": request.panel.id,

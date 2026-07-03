@@ -35,13 +35,29 @@ exactly this shape:
 {
   "translated_query": string,
   "confidence": "high" | "medium" | "low",
-  "reasoning": string,
+  "syntax_reasoning": string,
+  "mapping_reasoning": string,
+  "schema_mapping_applicable": boolean,
+  "mapping_used": string[],
   "needs_review": boolean
 }
 
 Rules:
-- "reasoning" should be a brief explanation of the translation and any assumptions you made \
-(e.g. how variables like $node or $__rate_interval were carried over, how a function was mapped).
+- "syntax_reasoning" explains ONLY the language/syntax translation choices (e.g. how functions, \
+operators, or variables like $node/$__rate_interval were carried over or mapped between the two \
+query languages). Do not discuss schema/metric-name mapping here.
+- "schema_mapping_applicable" is false only when the query has no metric/measurement name at all \
+(e.g. it's built purely from macros/timing with nothing to map). It is true whenever the query \
+references at least one metric, even if that metric turns out not to be covered by the confirmed \
+mapping below.
+- "mapping_used" must list the exact "source" metric names (from the confirmed schema mapping \
+given below the query) that this query's metrics were matched against and used for. Leave it as \
+an empty list whenever no confirmed mapping entry was used (including when "schema_mapping_applicable" \
+is false, or the query's metric isn't covered by the mapping, or no mapping was given at all).
+- "mapping_reasoning" explains ONLY the schema-mapping side: if "schema_mapping_applicable" is \
+false, briefly say there's no metric to map; if a confirmed mapping entry was used, explain which \
+one(s) and why; if the query references a metric with no confirmed mapping entry, say so \
+explicitly and note the target name is a guess. Do not discuss syntax/language translation here.
 - Set "needs_review" to true whenever the source query uses label filters, regex matching, \
 boolean/comparison operators, or functions that do not have a clean 1:1 equivalent in the \
 target language. Set it to false only when the translation is a direct, unambiguous mapping.
@@ -53,9 +69,8 @@ source metrics, use that mapping's exact measurement and field names rather than
 concatenate them into a single "measurement.field" string in the translated query.
 - If a confirmed schema mapping is given but the query references a metric NOT covered by it, \
 you must still translate it (guessing a measurement/field the same way you would if no mapping \
-were given at all), but explicitly say in "reasoning" that this metric has no confirmed mapping \
-and the target name is a guess, and set "needs_review" to true regardless of how direct the \
-translation otherwise looks.
+were given at all), but set "needs_review" to true regardless of how direct the translation \
+otherwise looks.
 """
 
 
@@ -93,9 +108,9 @@ async def translate_query(
     from POST /propose-mapping - grounding the translation in the real target schema instead
     of guessed measurement/field names.
 
-    Returns a dict with keys: translated_query, confidence, reasoning, needs_review.
-    Raises TranslationError if the API call fails or the model's response isn't
-    valid JSON matching the expected shape.
+    Returns a dict with keys: translated_query, confidence, syntax_reasoning, mapping_reasoning,
+    schema_mapping_applicable, mapping_used, needs_review. Raises TranslationError if the API
+    call fails or the model's response isn't valid JSON matching the expected shape.
     """
     if not VENICE_API_KEY:
         raise TranslationError("VENICE_API_KEY is not set")
@@ -115,7 +130,8 @@ async def translate_query(
         # entire answer in `reasoning_content` and leaves `content` empty, which
         # breaks response_format=json_object parsing. We don't need a visible
         # chain-of-thought here since the JSON schema already has its own
-        # "reasoning" field, so disable thinking to get a reliable `content`.
+        # "syntax_reasoning"/"mapping_reasoning" fields, so disable thinking to
+        # get a reliable `content`.
         "venice_parameters": {"disable_thinking": True},
     }
 
@@ -141,7 +157,16 @@ async def translate_query(
     except json.JSONDecodeError as exc:
         raise TranslationError(f"Model did not return valid JSON: {content}") from exc
 
-    missing = {"translated_query", "confidence", "reasoning", "needs_review"} - result.keys()
+    required_keys = {
+        "translated_query",
+        "confidence",
+        "syntax_reasoning",
+        "mapping_reasoning",
+        "schema_mapping_applicable",
+        "mapping_used",
+        "needs_review",
+    }
+    missing = required_keys - result.keys()
     if missing:
         raise TranslationError(f"Model response missing fields {missing}: {result}")
 
