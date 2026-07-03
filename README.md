@@ -91,12 +91,34 @@ Run it with:
 docker-compose up
 ```
 
+Once InfluxDB is up, seed it once with data representing the same business
+concepts as the Prometheus side, but under deliberately different
+measurement/tag/field names — the kind of naming drift a real migration hits,
+so translation has a genuinely different target schema to ground against
+instead of assuming names carry over 1:1:
+
+```
+python schema-sources/seed_influxdb.py
+```
+
+| Prometheus                              | InfluxDB                         |
+| ---------------------------------------- | --------------------------------- |
+| `orders_total{status,region}`            | `sales{region,status}` field `count` |
+| `revenue_dollars_total{currency,region}` | `revenue{region,currency}` field `amount` |
+| `active_users_gauge{plan}`               | `users{plan}` field `active`     |
+| `checkout_errors_total{error_type}`      | `errors{type}` field `count`     |
+
 Then:
 
 - Prometheus UI: http://localhost:9090 — try the query `orders_total` or
   `rate(revenue_dollars_total[5m])` under **Graph**.
 - Raw exporter output: http://localhost:9105/metrics
-- InfluxDB UI: http://localhost:8086 — log in with `admin` / `adminpassword`.
+- InfluxDB UI: http://localhost:8086 — log in with `admin` / `adminpassword`, or
+  query directly, e.g.:
+
+  ```
+  from(bucket: "ecommerce") |> range(start: -6h) |> filter(fn: (r) => r._measurement == "sales")
+  ```
 
 `docker-compose down` to stop, or `docker-compose down -v` to also drop the
 InfluxDB data volume.
@@ -107,8 +129,9 @@ InfluxDB data volume.
 backend/          FastAPI app — dashboard parsing, LLM-driven query translation
 frontend/          React (Vite) app — step-through review UI
 sample_data/       Example Grafana dashboard JSON exports for local dev/testing
-schema-sources/    Fake Prometheus exporter + Prometheus scrape config for the
-                   schema-introspection sandbox (see docker-compose.yml)
+schema-sources/    Fake Prometheus exporter, Prometheus scrape config, and an
+                   InfluxDB seed script for the schema-introspection sandbox
+                   (see docker-compose.yml)
 ```
 
 ## Status
