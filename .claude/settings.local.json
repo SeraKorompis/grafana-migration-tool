@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm *)",
+      "Bash(git init *)",
+      "Bash(git branch *)",
+      "Bash(.venv/Scripts/python -c \"import fastapi, uvicorn; print\\('deps ok'\\)\")",
+      "Bash(.venv/Scripts/python -m uvicorn backend.main:app --port 8123)",
+      "Bash(curl -s http://127.0.0.1:8123/)",
+      "Bash(curl -s http://127.0.0.1:8123/health)",
+      "Bash(kill %1)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(python -m venv /tmp/verify_venv)",
+      "Bash(/tmp/verify_venv/Scripts/python -m pip install -q -r backend/requirements.txt)",
+      "WebSearch",
+      "WebFetch(domain:docs.venice.ai)",
+      "Bash(python -m venv /tmp/verify_venv2)",
+      "Bash(/tmp/verify_venv2/Scripts/python -m pip install -q -r backend/requirements.txt)",
+      "Bash(curl -s -w \"\\\\nSTATUS:%{http_code}\\\\n\" -H \"Authorization: Bearer totally-fake-key-12345\" \"https://api.venice.ai/api/v1/models?type=text\")",
+      "Bash(rm -rf /tmp/verify_venv2)",
+      "Bash(rm -rf backend/__pycache__)",
+      "Bash(python -m venv /tmp/verify_venv3)",
+      "Bash(/tmp/verify_venv3/Scripts/python -m pip install -q -r backend/requirements.txt)",
+      "PowerShell(node --version 2>&1)",
+      "PowerShell(winget install *)",
+      "PowerShell(npm install *)",
+      "Skill(run)",
+      "Bash(chromium-cli --help)",
+      "Bash(python -m venv .venv_run)",
+      "Bash(.venv_run/Scripts/python -m pip install -q -r requirements.txt)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd \"C:\\\\Users\\\\Seraphina Korompis\\\\uk-ai-agent-hackathon\\\\grafana-migration-tool\\\\frontend\"; Start-Process -FilePath \"npm.cmd\" -ArgumentList \"run\",\"dev\" -RedirectStandardOutput \"$env:TEMP\\\\frontend.log\" -RedirectStandardError \"$env:TEMP\\\\frontend-err.log\" -PassThru -WindowStyle Hidden | Select-Object -ExpandProperty Id)",
+      "Bash(timeout 30 bash -c 'until curl -sf http://127.0.0.1:5173 >/dev/null; do sleep 1; done')",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:5173\" -UseBasicParsing | Select-Object -ExpandProperty StatusCode)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(python *)"
+    ]
+  }
+}

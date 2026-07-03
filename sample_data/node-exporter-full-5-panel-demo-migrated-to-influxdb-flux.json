@@ -1,0 +1,129 @@
+{
+  "panels": [
+    {
+      "id": 20,
+      "title": "CPU Busy",
+      "type": "gauge",
+      "description": "Overall CPU busy percentage (averaged across all cores)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "from(bucket: \"telegraf\")\n  |> range($start, $stop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_cpu\")\n  |> filter(fn: (r) => r[\"mode\"] == \"idle\")\n  |> filter(fn: (r) => r[\"instance\"] == \"$node\")\n  |> filter(fn: (r) => r[\"job\"] == \"$job\")\n  |> aggregateWindow(every: $__rate_interval, fn: mean)\n  |> difference(columns: [\"_value\"])\n  |> map(fn: (r) => ({r with _value: r._value / $__rate_interval}))\n  |> group(columns: [\"instance\", \"job\"])\n  |> mean(column: \"_value\")\n  |> map(fn: (r) => ({r with _value: 100.0 * (1.0 - r._value)}))"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "RAM Used",
+      "type": "gauge",
+      "description": "Real RAM usage excluding cache and reclaimable memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "B",
+          "expr": "from(bucket: \"telegraf\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"mem\")\n  |> filter(fn: (r) => r[\"host\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n    r with\n    _value: math.mMax(x: ((1.0 - (r[\"MemAvailable_bytes\"] / r[\"MemTotal_bytes\"])) * 100.0), y: 0.0)\n  }))"
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "title": "CPU Basic",
+      "type": "timeseries",
+      "description": "CPU time spent busy vs idle, split by activity type",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "from(bucket: v.defaultBucket)\n  |> range($timeRange)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_cpu_seconds_total\")\n  |> filter(fn: (r) => r[\"instance\"] == \"$node\")\n  |> filter(fn: (r) => r[\"job\"] == \"$job\")\n  |> filter(fn: (r) => r[\"mode\"] == \"system\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> difference(columns: [\"_value\"])\n  |> map(fn: (r) => ({ r with _value: r._value / v.windowPeriod }))\n  |> mean(column: \"_value\")",
+          "legendFormat": "Busy System"
+        },
+        {
+          "refId": "B",
+          "expr": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_cpu_seconds_total\")\n  |> filter(fn: (r) => r[\"instance\"] == v.node)\n  |> filter(fn: (r) => r[\"job\"] == v.job)\n  |> filter(fn: (r) => r[\"mode\"] == \"user\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> difference(columns: [\"_value\"])\n  |> map(fn: (r) => ({ r with _value: r._value / v.windowPeriod }))\n  |> group(columns: [\"_time\", \"instance\", \"job\", \"mode\"])\n  |> mean(column: \"_value\")",
+          "legendFormat": "Busy User"
+        },
+        {
+          "refId": "F",
+          "expr": "from(bucket: \"telegraf\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_cpu\")\n  |> filter(fn: (r) => r[\"_field\"] == \"seconds_total\")\n  |> filter(fn: (r) => r[\"instance\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> filter(fn: (r) => r[\"mode\"] == \"idle\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> difference(columns: [\"_value\"])\n  |> map(fn: (r) => ({ r with _value: r._value / v.windowPeriod }))\n  |> group(columns: [\"_measurement\", \"instance\", \"job\", \"mode\"])\n  |> mean()",
+          "legendFormat": "Idle"
+        }
+      ]
+    },
+    {
+      "id": 152,
+      "title": "Disk Space Used Basic",
+      "type": "timeseries",
+      "description": "Percentage of filesystem space used for each mounted device",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_filesystem_size_bytes\")\n  |> filter(fn: (r) => r[\"instance\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> filter(fn: (r) => r[\"device\"] != \"rootfs\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n    r with\n    _value: (r._value - r.node_filesystem_avail_bytes) / r._value * 100.0\n  }))\n  |> yield(name: \"result\")",
+          "legendFormat": "{{mountpoint}}"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "title": "Disk Average Wait Time",
+      "type": "timeseries",
+      "description": "Average time for requests issued to the device to be served. This includes the time spent by the requests in queue and the time spent servicing them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "from(bucket: \"your_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_disk_reads_completed_total\")\n  |> filter(fn: (r) => r[\"instance\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> aggregateWindow(every: v.windowPeriod, fn: rate, createEmpty: false)\n  |> map(fn: (r) => ({ r with \"reads_rate\": r._value }))\n  |> yield(name: \"reads\")\n\nfrom(bucket: \"your_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_disk_read_time_seconds_total\")\n  |> filter(fn: (r) => r[\"instance\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> aggregateWindow(every: v.windowPeriod, fn: rate, createEmpty: false)\n  |> map(fn: (r) => ({ r with \"time_rate\": r._value }))\n  |> yield(name: \"time\")\n\n// Join and calculate\njoin(tables: {reads: reads, time: time}, on: [\"instance\", \"job\", \"_time\"])\n  |> map(fn: (r) => ({\n      r with\n      _value: if r.reads_rate > 0.0 then (r.time_rate / r.reads_rate) else 0.0\n    }))\n  |> yield(name: \"result\")",
+          "legendFormat": "{{device}} - Read"
+        },
+        {
+          "refId": "B",
+          "expr": "from(bucket: \"your_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_disk_writes_completed_total\")\n  |> filter(fn: (r) => r[\"instance\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> aggregateWindow(every: v.windowPeriod, fn: rate, createEmpty: false)\n  |> map(fn: (r) => ({r with \"write_rate\": r._value}))\n  |> yield(name: \"writes\")\n\nfrom(bucket: \"your_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"node_disk_write_time_seconds_total\")\n  |> filter(fn: (r) => r[\"instance\"] == \"${node}\")\n  |> filter(fn: (r) => r[\"job\"] == \"${job}\")\n  |> aggregateWindow(every: v.windowPeriod, fn: rate, createEmpty: false)\n  |> map(fn: (r) => ({r with \"time_rate\": r._value}))\n  |> yield(name: \"times\")\n\n// Join and calculate average latency (time / count), filtering where rate > 0\njoin(tables: {writes: yield(name: \"writes\"), times: yield(name: \"times\")}, on: [\"instance\", \"job\", \"device\"], method: \"inner\")\n  |> map(fn: (r) => ({\n      r with\n      _value: if r.write_rate > 0.0 then r.time_rate / r.write_rate else 0.0\nn    }))\n  |> yield(name: \"result\")",
+          "legendFormat": "{{device}} - Write"
+        }
+      ]
+    }
+  ],
+  "title": "Node Exporter Full (5-panel demo) (migrated to InfluxDB Flux)",
+  "uid": "rYdddlPWk-demo5-migrated",
+  "tags": [
+    "linux"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds_prometheus",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "job",
+        "type": "query"
+      },
+      {
+        "name": "nodename",
+        "type": "query"
+      },
+      {
+        "name": "node",
+        "type": "query"
+      }
+    ]
+  },
+  "_source_note": "5-panel subset of the real 'Node Exporter Full' community dashboard (Grafana ID 1860), curated for a short recorded demo: 2 simple single-query gauges (easy wins), 1 multi-query timeseries panel, and 2 panels with label filters / boolean logic likely to trigger needs_review flags."
+}
