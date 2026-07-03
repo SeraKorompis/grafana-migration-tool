@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from dashboard_exporter import build_migrated_dashboard
 from dashboard_parser import load_dashboard, parse_dashboard
+from schema_introspection import SchemaIntrospectionError, get_influxdb_schema, get_prometheus_metric_names
 from translator import TranslationError, translate_query
 
 app = FastAPI(title="Grafana Migration Tool API")
@@ -88,6 +89,26 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/schema")
+async def get_schema():
+    """Live schema pulled straight from the running Prometheus/InfluxDB instances
+    (see docker-compose.yml), for grounding translation in what's actually there.
+    """
+    result = {}
+
+    try:
+        result["prometheus"] = {"metric_names": await get_prometheus_metric_names()}
+    except SchemaIntrospectionError as exc:
+        result["prometheus"] = {"error": str(exc)}
+
+    try:
+        result["influxdb"] = {"measurements": await get_influxdb_schema()}
+    except SchemaIntrospectionError as exc:
+        result["influxdb"] = {"error": str(exc)}
+
+    return result
 
 
 @app.get("/dashboards")
