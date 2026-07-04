@@ -1,0 +1,43 @@
+services:
+  fake-exporter:
+    build: ./schema-sources
+    ports:
+      - "9105:9105"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./schema-sources/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - fake-exporter
+
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: hackathon
+      DOCKER_INFLUXDB_INIT_BUCKET: ecommerce
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: dev-token-please-change
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+
+  influx-seeder:
+    build: ./schema-sources
+    command: ["python", "-u", "seed_influxdb.py"]
+    environment:
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_ORG: hackathon
+      INFLUXDB_BUCKET: ecommerce
+      INFLUXDB_TOKEN: dev-token-please-change
+      SEED_LOOP: "1"
+    depends_on:
+      - influxdb
+
+volumes:
+  influxdb-data:

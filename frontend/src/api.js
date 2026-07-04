@@ -13,11 +13,30 @@ export async function fetchPanels(file) {
   return res.json()
 }
 
-export async function translatePanel(panel, targetLanguage) {
+export async function fetchSchema() {
+  const res = await fetch(`${API_BASE}/schema`)
+  if (!res.ok) throw new Error(`Failed to load schema (${res.status})`)
+  return res.json()
+}
+
+export async function proposeMapping() {
+  const res = await fetch(`${API_BASE}/propose-mapping`, { method: 'POST' })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `Mapping proposal failed (${res.status})`)
+  }
+  return res.json()
+}
+
+export async function translatePanel(panel, targetLanguage, schemaMapping) {
   const res = await fetch(`${API_BASE}/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ panel, target_language: targetLanguage }),
+    body: JSON.stringify({
+      panel,
+      target_language: targetLanguage,
+      schema_mapping: schemaMapping?.length ? schemaMapping : null,
+    }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

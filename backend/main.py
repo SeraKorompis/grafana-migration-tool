@@ -7,6 +7,13 @@ from pydantic import BaseModel
 
 from dashboard_exporter import build_migrated_dashboard
 from dashboard_parser import load_dashboard, parse_dashboard
+from schema_introspection import (
+    INFLUXDB_BUCKET,
+    SchemaIntrospectionError,
+    get_influxdb_schema,
+    get_prometheus_schema,
+)
+from schema_mapper import MappingError, propose_schema_mapping
 from translator import TranslationError, translate_query
 
 app = FastAPI(title="Grafana Migration Tool API")
@@ -32,6 +39,7 @@ class PanelQuery(BaseModel):
 class Panel(BaseModel):
     id: Optional[int] = None
     title: Optional[str] = None
+    type: Optional[str] = None
     datasource: Optional[Any] = None
     queries: list[PanelQuery]
 
@@ -39,6 +47,7 @@ class Panel(BaseModel):
 class TranslateRequest(BaseModel):
     panel: Panel
     target_language: str = "InfluxDB Flux"
+    schema_mapping: Optional[list[dict[str, Any]]] = None
 
 
 class QueryDecision(BaseModel):
@@ -90,6 +99,50 @@ def health_check():
     return {"status": "ok"}
 
 
+@app.get("/schema")
+async def get_schema():
+    """Live schema pulled straight from the running Prometheus/InfluxDB instances
+    (see docker-compose.yml), for grounding translation in what's actually there.
+    """
+    result = {}
+
+    try:
+        result["prometheus"] = {"metrics": await get_prometheus_schema()}
+    except SchemaIntrospectionError as exc:
+        result["prometheus"] = {"error": str(exc)}
+
+    try:
+        result["influxdb"] = {"measurements": await get_influxdb_schema()}
+    except SchemaIntrospectionError as exc:
+        result["influxdb"] = {"error": str(exc)}
+
+    return result
+
+
+@app.post("/propose-mapping")
+async def propose_mapping():
+    """Ask the LLM to propose source-metric -> target-measurement.field mappings,
+    grounded in the live schema of both the Prometheus and InfluxDB instances
+    (see docker-compose.yml).
+    """
+    try:
+        prometheus_schema = {"metrics": await get_prometheus_schema()}
+    except SchemaIntrospectionError as exc:
+        raise HTTPException(status_code=502, detail=f"Prometheus schema unavailable: {exc}") from exc
+
+    try:
+        influxdb_schema = {"measurements": await get_influxdb_schema()}
+    except SchemaIntrospectionError as exc:
+        raise HTTPException(status_code=502, detail=f"InfluxDB schema unavailable: {exc}") from exc
+
+    try:
+        mappings = await propose_schema_mapping(prometheus_schema, influxdb_schema)
+    except MappingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"mappings": mappings}
+
+
 @app.get("/dashboards")
 def list_dashboards():
     files = sorted(p.name for p in SAMPLE_DATA_DIR.glob("*.json"))
@@ -106,13 +159,37 @@ def parse_sample_dashboard(file: Optional[str] = None):
 async def translate_panel(request: TranslateRequest):
     source_language = _source_language_for(request.panel.datasource)
 
+    schema_mapping_by_source = {m["source"]: m for m in (request.schema_mapping or [])}
+    target_bucket = INFLUXDB_BUCKET if request.target_language == "InfluxDB Flux" else None
+
     translations = []
     for query in request.panel.queries:
         try:
-            result = await translate_query(query.expr, source_language, request.target_language)
+            result = await translate_query(
+                query.expr,
+                source_language,
+                request.target_language,
+                request.schema_mapping,
+                target_bucket,
+                request.panel.type,
+            )
         except TranslationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        translations.append({"ref_id": query.ref_id, "source_expr": query.expr, **result})
+
+        mapping_used = result.pop("mapping_used", [])
+        mapping_applied = [
+            {
+                "source": source,
+                "target": schema_mapping_by_source[source]["target"],
+                "confidence": schema_mapping_by_source[source]["confidence"],
+            }
+            for source in mapping_used
+            if source in schema_mapping_by_source
+        ]
+
+        translations.append(
+            {"ref_id": query.ref_id, "source_expr": query.expr, "mapping_applied": mapping_applied, **result}
+        )
 
     return {
         "panel_id": request.panel.id,

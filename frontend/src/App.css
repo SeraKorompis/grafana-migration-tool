@@ -181,6 +181,11 @@ header select {
   color: #cbd5e1;
 }
 
+.badge-low-mapping {
+  background: #581c87;
+  color: #e9d5ff;
+}
+
 .decision-summary {
   display: flex;
   gap: 0.5rem;
@@ -304,6 +309,38 @@ pre {
   line-height: 1.4;
 }
 
+.reasoning + .reasoning {
+  margin-top: 0.75rem;
+}
+
+.mapping-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.mapping-section-header h4 {
+  margin: 0;
+}
+
+.mapping-applied-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.mapping-applied-list code {
+  background: #0f172a;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
 .error {
   color: #fca5a5;
 }
@@ -315,4 +352,47 @@ pre {
 .languages {
   color: #94a3b8;
   margin-top: -0.5rem;
+}
+
+.mapping-screen h2 {
+  margin-top: 0;
+}
+
+.mapping-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.85rem;
+}
+
+.mapping-table th {
+  text-align: left;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #334155;
+}
+
+.mapping-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #1e293b;
+  vertical-align: middle;
+}
+
+.mapping-table input,
+.mapping-table select {
+  width: 100%;
+  background: #0f172a;
+  color: inherit;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+}
+
+.mapping-actions {
+  display: flex;
+  gap: 0.5rem;
 }
